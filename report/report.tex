@@ -17,6 +17,7 @@
 \usepackage{microtype}      % microtypography
 \usepackage{xcolor}         % colors
 \usepackage{graphicx}       % include graphics
+\usepackage{subcaption}     % subfigures
 \usepackage{amsmath}        % math environments
 \usepackage{algorithm}      % algorithm environment
 \usepackage{algorithmic}    % algorithmic pseudo-code
@@ -49,22 +50,18 @@
 
 
 \begin{abstract}
-Forecasting exchange rates is an important problem in finance and economics because currency movements influence international trade, investment decisions, and monetary policy. In this project, we study the prediction of the Canadian dollar (CAD) exchange rate relative to three major global currencies---the US dollar (USD), the euro (EUR), and the Chinese yuan (CNY)---using daily exchange-rate data from the Bank of Canada. We formulate the task as a supervised regression problem in which engineered features derived from historical observations (lagged values, rolling statistics, percentage changes, and cyclical date encodings) are used to predict the next-day exchange rate. We compare three models: ordinary least-squares linear regression as a baseline, support vector regression (SVR) with a radial basis function kernel, and a multilayer perceptron (MLP) implemented in PyTorch. Models are evaluated on a held-out chronological test set using mean absolute error (MAE), root mean squared error (RMSE), and the coefficient of determination ($R^2$). Our results show that linear regression achieves the strongest performance across all three currency pairs ($R^2 > 0.94$), while SVR and MLP, trained on standardized features but unscaled targets, exhibit higher error. We discuss the implications of these findings and propose directions for improvement, including target scaling and recurrent architectures.
+We study next-day prediction of the Canadian dollar (CAD) exchange rate against three major currencies---USD, EUR, and CNY---using daily data from the Bank of Canada. The task is formulated as supervised regression with 23 engineered features (lagged values, rolling statistics, returns, and cyclical date encodings). We compare ordinary least-squares linear regression, support vector regression (SVR) with an RBF kernel, and a multilayer perceptron (MLP) in PyTorch. Linear regression achieves the best performance across all pairs ($R^2 > 0.94$), while SVR and MLP underperform due to a feature--target scale mismatch. We analyze these results and propose improvements including target normalization and recurrent architectures.
 \end{abstract}
 
 \section*{Attestation of Teamwork}
-% TODO: Fill in actual contributions
-Member~1 was responsible for data collection, API integration, and preprocessing pipeline development. Member~2 designed and implemented the machine learning models (Linear Regression, SVR, MLP) and the training routines. Member~3 conducted the numerical experiments, generated evaluation metrics and figures, and drafted the report. All members contributed to the project design, discussion, and final review of the report.
-
+All three team members contributed equally to all stages of this project, including problem formulation, model design and implementation, experimentation, and report writing.
 
 
 \section{Introduction}
 
-Exchange-rate forecasting is a central problem in computational finance. Accurate predictions of currency values support import/export pricing, hedging strategies, and central-bank policy analysis~[1]. The Canadian dollar is of particular interest because Canada is a major trading partner of the United States, the European Union, and China, making the CAD exchange rate sensitive to a broad set of macroeconomic factors.
+Exchange-rate forecasting is a central problem in computational finance, supporting hedging, trade pricing, and policy analysis~[1]. The Canadian dollar is of particular interest because Canada is a major trading partner of the United States, the European Union, and China. Traditional econometric approaches such as the random-walk model remain difficult-to-beat baselines~[2], but advances in machine learning have renewed interest in data-driven forecasting, with nonlinear models showing promise on financial time series~[3,~4].
 
-Traditional econometric approaches, such as the random-walk model, have long served as difficult-to-beat baselines for exchange-rate prediction~[2]. However, the increasing availability of high-frequency financial data and advances in machine learning have motivated renewed interest in data-driven forecasting methods. In particular, nonlinear models such as support vector machines and neural networks have shown promise in capturing complex temporal patterns in financial time series~[3,~4].
-
-In this project, we investigate whether supervised learning methods can identify predictive structure in historical daily exchange-rate data for the Canadian dollar against three major currencies: USD, EUR, and CNY. We compare a linear regression baseline with two nonlinear approaches---support vector regression (SVR) and a multilayer perceptron (MLP)---and evaluate their performance using standard regression metrics. Our goal is to assess the effectiveness and limitations of these machine learning techniques for short-term exchange-rate forecasting.
+We investigate whether supervised learning methods can identify predictive structure in daily CAD exchange-rate data against three currencies (USD, EUR, CNY), comparing linear regression with SVR and an MLP.
 
 
 \section{Preliminaries and Problem Formulation}
@@ -103,29 +100,18 @@ where $r_i$ and $\hat{r}_i$ are the actual and predicted values, $\bar{r}$ is th
 
 Our system follows a modular pipeline design consisting of five stages, as illustrated in Figure~\ref{fig:pipeline}.
 
-\begin{figure}[h]
+\begin{figure}[!t]
   \centering
   \fbox{%
     \parbox{0.9\textwidth}{\centering
       \textbf{Data Download} $\rightarrow$ \textbf{Feature Engineering} $\rightarrow$ \textbf{Train/Val/Test Split} $\rightarrow$ \textbf{Model Training} $\rightarrow$ \textbf{Evaluation \& Visualization}
     }%
   }
-  \caption{High-level pipeline architecture. Data flows left to right through five sequential stages.}
+  \caption{High-level pipeline architecture.}
   \label{fig:pipeline}
 \end{figure}
 
-\textbf{Key components:}
-\begin{enumerate}
-  \item \textbf{Data Loader} (\texttt{data\_loader.py}): Downloads daily exchange-rate data from the Bank of Canada Valet API for three currency pairs (USD/CAD, EUR/CAD, CNY/CAD) covering the period 2015--2025 (2,244 observations per pair). Downloaded data is cached locally as CSV files.
-  
-  \item \textbf{Preprocessing Module} (\texttt{preprocessing.py}): Constructs 23 features from the raw time series (see Section~2.2), performs a chronological 70/15/15 train/validation/test split (no shuffling to respect temporal ordering), and applies standard scaling (zero mean, unit variance) fitted only on the training set.
-  
-  \item \textbf{Model Definitions} (\texttt{models.py}): Implements three regression models---Linear Regression and SVR via scikit-learn, and an MLP via PyTorch.
-  
-  \item \textbf{Training Module} (\texttt{train.py}): Handles model fitting. For sklearn models, this is a simple \texttt{.fit()} call. For the MLP, it implements a full training loop with mini-batch gradient descent, early stopping, and learning-rate scheduling.
-  
-  \item \textbf{Evaluation Module} (\texttt{evaluate.py}): Computes MAE, RMSE, and $R^2$ on the test set, and generates prediction plots, learning curves, and residual histograms.
-\end{enumerate}
+The pipeline comprises five modules: (1)~\textbf{Data Loader} downloads daily data from the Bank of Canada Valet API for USD/CAD, EUR/CAD, and CNY/CAD (2015--2025; 2,244 observations each); (2)~\textbf{Preprocessing} constructs 23 features (Section~2.2), performs a chronological 70/15/15 split, and applies standard scaling fitted on the training set only; (3)~\textbf{Models} implements Linear Regression, SVR (scikit-learn), and MLP (PyTorch); (4)~\textbf{Training} handles fitting with early stopping for the MLP; (5)~\textbf{Evaluation} computes metrics and generates figures.
 
 
 \section{Methodology}
@@ -156,7 +142,7 @@ The MLP is a feedforward neural network implemented in PyTorch~[7]. The architec
 
 The output layer is a single linear neuron producing the scalar prediction $\hat{r}_{t+1}$.
 
-\begin{algorithm}[h]
+\begin{algorithm}[!t]
 \caption{MLP Training with Early Stopping}
 \label{alg:mlp}
 \begin{algorithmic}[1]
@@ -190,19 +176,15 @@ The output layer is a single linear neuron producing the scalar prediction $\hat
 
 \section{Numerical Experiments}
 
-\subsection{Dataset}
+\subsection{Dataset and Experimental Setup}
 
-We use daily exchange-rate data from the Bank of Canada Valet API covering the period January 2015 to December 2025. Each currency pair (USD/CAD, EUR/CAD, CNY/CAD) contains 2,244 observations. After feature engineering (which requires a warm-up period of 50 days for the longest rolling window), 2,193 usable samples remain per pair. The data is split chronologically: 1,535 training samples (70\%), 329 validation samples (15\%), and 329 test samples (15\%). The test period covers approximately August 2024 to January 2026.
-
-\subsection{Experimental Setup}
-
-All features are standardized to zero mean and unit variance using a \texttt{StandardScaler} fitted on the training set only. The same scaling is applied to the validation and test sets. All random seeds are fixed to 42 for reproducibility.
+We use daily exchange-rate data from the Bank of Canada Valet API (January 2015--December 2025), yielding 2,244 observations per pair. After a 50-day warm-up for rolling features, 2,193 samples remain. These are split chronologically: 1,535 training (70\%), 329 validation (15\%), 329 test (15\%), covering approximately August 2024 to January 2026. All features are standardized using a \texttt{StandardScaler} fitted on the training set only. Seeds are fixed to 42 for reproducibility.
 
 \subsection{Results}
 
 Table~\ref{tab:results} summarizes the performance of all three models on the test set across the three currency pairs.
 
-\begin{table}[h]
+\begin{table}[!t]
   \caption{Test-set performance across all currency pairs and models.}
   \label{tab:results}
   \centering
@@ -227,126 +209,85 @@ Table~\ref{tab:results} summarizes the performance of all three models on the te
 
 \subsection{Prediction Plots}
 
-Figures~\ref{fig:usd_pred}--\ref{fig:cny_pred} show the actual vs.\ predicted exchange rates on the test set for all three currency pairs.
+Figure~\ref{fig:predictions} shows actual vs.\ predicted exchange rates on the test set for all three currency pairs.
 
-\begin{figure}[h]
+\begin{figure}[!t]
   \centering
-  \includegraphics[width=\textwidth]{figures/USD_predictions.png}
-  \caption{USD/CAD: Actual vs.\ predicted exchange rates on the test set. Linear Regression (blue) tracks the actual values (black) closely, while SVR (orange) produces a near-constant prediction and MLP (green) exhibits high variance.}
-  \label{fig:usd_pred}
-\end{figure}
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=\textwidth]{figures/EUR_predictions.png}
-  \caption{EUR/CAD: Actual vs.\ predicted exchange rates on the test set. Linear Regression again provides the best fit. SVR captures the general trend but lags behind. MLP shows unstable oscillations.}
-  \label{fig:eur_pred}
-\end{figure}
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=\textwidth]{figures/CNY_predictions.png}
-  \caption{CNY/CAD: Actual vs.\ predicted exchange rates on the test set. The scale of CNY/CAD (approximately 0.19) is much smaller than the other pairs, which affects the relative error magnitudes.}
-  \label{fig:cny_pred}
+  \begin{subfigure}[b]{\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/USD_predictions.png}
+    \caption{USD/CAD}
+    \label{fig:usd_pred}
+  \end{subfigure}\\[4pt]
+  \begin{subfigure}[b]{\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/EUR_predictions.png}
+    \caption{EUR/CAD}
+    \label{fig:eur_pred}
+  \end{subfigure}\\[4pt]
+  \begin{subfigure}[b]{\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/CNY_predictions.png}
+    \caption{CNY/CAD}
+    \label{fig:cny_pred}
+  \end{subfigure}
+  \caption{Actual vs.\ predicted exchange rates on the test set. Linear Regression (blue) tracks actual values (black) closely. SVR (orange) tends toward near-constant predictions, and MLP (green) exhibits high variance.}
+  \label{fig:predictions}
 \end{figure}
 
 \subsection{Learning Curves}
 
-Figures~\ref{fig:usd_lc}--\ref{fig:cny_lc} show the MLP training and validation loss curves.
+Figure~\ref{fig:learning_curves} shows the MLP training and validation loss curves.
 
-\begin{figure}[h]
+\begin{figure}[!t]
   \centering
-  \includegraphics[width=0.7\textwidth]{figures/USD_learning_curve.png}
-  \caption{MLP learning curve for USD/CAD. Both train and validation loss converge quickly, but a gap persists indicating some overfitting. Early stopping triggered at epoch 84.}
-  \label{fig:usd_lc}
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/USD_learning_curve.png}
+    \caption{USD/CAD}
+    \label{fig:usd_lc}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/EUR_learning_curve.png}
+    \caption{EUR/CAD}
+    \label{fig:eur_lc}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/CNY_learning_curve.png}
+    \caption{CNY/CAD}
+    \label{fig:cny_lc}
+  \end{subfigure}
+  \caption{MLP learning curves. Train and validation loss converge quickly in all cases; a persistent gap indicates some overfitting. Early stopping triggered at epochs 84 (USD), 101 (EUR), and 79 (CNY).}
+  \label{fig:learning_curves}
 \end{figure}
 
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.7\textwidth]{figures/EUR_learning_curve.png}
-  \caption{MLP learning curve for EUR/CAD. Similar convergence pattern with early stopping at epoch 101.}
-  \label{fig:eur_lc}
-\end{figure}
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.7\textwidth]{figures/CNY_learning_curve.png}
-  \caption{MLP learning curve for CNY/CAD. The smaller scale of CNY/CAD rates leads to lower absolute loss values. Early stopping triggered at epoch 79.}
-  \label{fig:cny_lc}
-\end{figure}
-
-\subsection{Hyperparameter Summary}
-
-Table~\ref{tab:hyperparams} lists the key hyperparameters used in the experiments.
-
-\begin{table}[h]
-  \caption{Hyperparameters for SVR and MLP models.}
-  \label{tab:hyperparams}
-  \centering
-  \begin{tabular}{lll}
-    \toprule
-    Model & Parameter & Value \\
-    \midrule
-    SVR & Kernel & RBF \\
-    SVR & $C$ & 10.0 \\
-    SVR & $\varepsilon$ & 0.01 \\
-    SVR & $\gamma$ & scale \\
-    \midrule
-    MLP & Hidden layers & [128, 64, 32] \\
-    MLP & Activation & ReLU \\
-    MLP & Dropout rate & 0.2 \\
-    MLP & Batch normalization & Yes \\
-    MLP & Optimizer & Adam \\
-    MLP & Learning rate & $10^{-3}$ \\
-    MLP & Weight decay & $10^{-5}$ \\
-    MLP & Batch size & 64 \\
-    MLP & Max epochs & 200 \\
-    MLP & Early stopping patience & 20 \\
-    MLP & LR scheduler & ReduceLROnPlateau (factor=0.5, patience=10) \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+Key hyperparameters: SVR uses an RBF kernel with $C=10$, $\varepsilon=0.01$, $\gamma=\text{scale}$. The MLP has hidden layers $[128, 64, 32]$ with ReLU, batch normalization, and dropout (0.2), trained with Adam ($\eta=10^{-3}$, weight decay $10^{-5}$), batch size 64, and early stopping (patience 20). Full details are in Table~\ref{tab:hyperparams} (Appendix).
 
 
 \section{Discussion}
 
 \subsection{Linear Regression Dominates}
 
-Linear regression achieved the best performance across all three currency pairs, with $R^2$ values of 0.97 (USD), 0.99 (EUR), and 0.95 (CNY). This is because the most predictive feature is the 1-day lag ($r_{t-1}$), and exchange rates are known to exhibit strong autocorrelation. The linear model learns to place heavy weight on this single feature, effectively approximating a random-walk-plus-drift model, which is a well-known strong baseline in exchange-rate forecasting~[2].
+Linear regression achieved $R^2$ values of 0.97 (USD), 0.99 (EUR), and 0.95 (CNY). The most predictive feature is the 1-day lag ($r_{t-1}$); the linear model effectively approximates a random-walk-plus-drift model, a well-known strong baseline~[2].
 
 \subsection{SVR and MLP Underperformance}
 
-Both SVR and MLP underperformed relative to linear regression. The primary cause is a \textbf{scale mismatch}: while input features were standardized to zero mean and unit variance, the target variable (exchange rate) was left in its original scale. This mismatch is particularly damaging for:
+Both SVR and MLP underperformed due to a \textbf{feature--target scale mismatch}: input features were standardized but the target was left in its original scale. For SVR, the $\varepsilon$-insensitive tube ($\varepsilon=0.01$) encompasses most natural variation in USD/CAD ($\approx 1.4$), producing near-constant predictions. For the MLP, outputting raw exchange rates from standardized inputs creates unstable gradients.
 
-\begin{itemize}
-  \item \textbf{SVR}: The $\varepsilon$-insensitive loss tube ($\varepsilon = 0.01$) is defined in the target space. For USD/CAD (values around 1.35--1.45), this tube encompasses most of the natural variation, causing SVR to produce near-constant predictions.
-  \item \textbf{MLP}: The network must learn to output values in the range $[0.19, 1.60]$ directly from standardized inputs, requiring the output layer to learn large bias terms and specific weight scales. This is exacerbated by the MSE loss being computed in the raw target space, which creates unstable gradients.
-\end{itemize}
+The CNY/CAD pair ($\approx 0.19$) yielded the best MLP results ($R^2 = 0.175$), consistent with a less severe scale mismatch. EUR/CAD benefited SVR ($R^2 = 0.57$) due to its larger signal amplitude relative to $\varepsilon$.
 
-\subsection{Currency-Specific Observations}
+\subsection{Summary}
 
-The CNY/CAD pair (values around 0.19) shows smaller absolute errors for all models because the exchange-rate values themselves are smaller. Notably, the MLP achieved a positive $R^2 = 0.175$ on CNY/CAD, suggesting that the scale mismatch is less severe when the target values are closer to zero. The EUR/CAD pair showed the largest range during the test period, which benefited SVR (positive $R^2 = 0.57$) as the $\varepsilon$-tube was small relative to the signal amplitude.
-
-\subsection{Research Questions}
-
-\textbf{Q1: Can supervised learning methods identify predictive structure in exchange-rate data?}
-Yes. The high $R^2$ values for linear regression confirm that lag features and rolling statistics contain strong predictive signal for next-day rates. However, this is largely driven by the autoregressive nature of exchange rates rather than discovery of complex nonlinear patterns.
-
-\textbf{Q2: Do nonlinear models outperform linear baselines?}
-In our current setup, no. The nonlinear models (SVR, MLP) underperformed due to the target scaling issue. With proper target normalization, we expect these models to match or modestly improve upon the linear baseline, particularly during periods of high volatility.
+Lag features contain strong predictive signal for next-day rates, but this is largely autoregressive rather than revealing complex nonlinear structure. With proper target normalization, nonlinear models may match or modestly improve upon the linear baseline.
 
 
 \section{Conclusions}
 
-In this project, we investigated the prediction of Canadian dollar exchange rates against USD, EUR, and CNY using three machine learning models. Our key findings are:
+Linear regression achieves $R^2 > 0.94$ on all three currency pairs by leveraging strong autocorrelation in exchange-rate series. SVR and MLP underperformed due to a feature--target scale mismatch, underscoring the importance of consistent preprocessing. The dominant predictive signal comes from the most recent lag values.
 
-\begin{enumerate}
-  \item Linear regression is a strong baseline for next-day exchange-rate prediction, achieving $R^2 > 0.94$ on all three currency pairs, primarily by leveraging the strong autocorrelation in exchange-rate time series.
-  \item SVR and MLP, while theoretically more expressive, underperformed in our setup due to a feature--target scale mismatch. This highlights the importance of consistent preprocessing in machine learning pipelines.
-  \item The 23 engineered features (lags, rolling statistics, returns, calendar encodings) provide a rich representation of the exchange-rate dynamics, but the dominant signal comes from the most recent lag values.
-\end{enumerate}
-
-\textbf{Future work:} Several directions could improve results: (a)~normalizing the target variable alongside features, (b)~systematic hyperparameter tuning via grid or Bayesian search, (c)~incorporating recurrent architectures (LSTM, GRU) or Transformer models to better capture long-range temporal dependencies, (d)~adding exogenous features such as interest-rate differentials, commodity prices, or macroeconomic indicators, and (e)~framing the task as direction-of-change classification rather than point regression.
+\textbf{Future work:} (a)~Normalizing the target alongside features, (b)~systematic hyperparameter tuning, (c)~recurrent or Transformer architectures, (d)~exogenous features (interest rates, commodities), and (e)~direction-of-change classification.
 
 
 \section*{References}
@@ -376,19 +317,85 @@ In this project, we investigated the prediction of Canadian dollar exchange rate
 
 \section*{Appendix}
 
-The complete source code is organized as follows:
-\begin{itemize}
-  \item \texttt{main.py} -- Entry point; runs the full pipeline.
-  \item \texttt{config.py} -- All hyperparameters and configuration constants.
-  \item \texttt{src/data\_loader.py} -- Downloads and caches exchange-rate data from the Bank of Canada API.
-  \item \texttt{src/preprocessing.py} -- Feature engineering, chronological splitting, and scaling.
-  \item \texttt{src/models.py} -- Model definitions (Linear Regression, SVR, MLP).
-  \item \texttt{src/train.py} -- Training routines with early stopping for MLP.
-  \item \texttt{src/evaluate.py} -- Metrics computation and figure generation.
-  \item \texttt{src/utils.py} -- Utility functions (seed setting, directory creation).
-\end{itemize}
+\subsection*{A. Hyperparameters}
 
-All figures and the results summary CSV are generated automatically by running \texttt{python main.py}. The data is downloaded from the Bank of Canada Valet API~[9] (free, public, no API key required).
+\begin{table}[h]
+  \caption{Hyperparameters for SVR and MLP models.}
+  \label{tab:hyperparams}
+  \centering
+  \begin{tabular}{lll}
+    \toprule
+    Model & Parameter & Value \\
+    \midrule
+    SVR & Kernel & RBF \\
+    SVR & $C$ & 10.0 \\
+    SVR & $\varepsilon$ & 0.01 \\
+    SVR & $\gamma$ & scale \\
+    \midrule
+    MLP & Hidden layers & [128, 64, 32] \\
+    MLP & Activation & ReLU \\
+    MLP & Dropout rate & 0.2 \\
+    MLP & Batch normalization & Yes \\
+    MLP & Optimizer & Adam \\
+    MLP & Learning rate & $10^{-3}$ \\
+    MLP & Weight decay & $10^{-5}$ \\
+    MLP & Batch size & 64 \\
+    MLP & Max epochs & 200 \\
+    MLP & Early stopping patience & 20 \\
+    MLP & LR scheduler & ReduceLROnPlateau (factor=0.5, patience=10) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection*{B. Residual Histograms}
+
+Figure~\ref{fig:residuals} shows residual distributions for all model--currency combinations. Linear Regression residuals are tightly centered around zero, while SVR and MLP exhibit wider, often biased residual distributions.
+
+\begin{figure}[h]
+  \centering
+  \begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/USD_Linear_Regression_residuals.png}
+    \caption{LR -- USD}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/USD_SVR_residuals.png}
+    \caption{SVR -- USD}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/USD_MLP_residuals.png}
+    \caption{MLP -- USD}
+  \end{subfigure}\\[4pt]
+  \begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/EUR_Linear_Regression_residuals.png}
+    \caption{LR -- EUR}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/EUR_SVR_residuals.png}
+    \caption{SVR -- EUR}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/EUR_MLP_residuals.png}
+    \caption{MLP -- EUR}
+  \end{subfigure}\\[4pt]
+  \begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/CNY_Linear_Regression_residuals.png}
+    \caption{LR -- CNY}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/CNY_SVR_residuals.png}
+    \caption{SVR -- CNY}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/CNY_MLP_residuals.png}
+    \caption{MLP -- CNY}
+  \end{subfigure}
+  \caption{Residual histograms for all model--currency pair combinations. The red dashed line marks zero residual.}
+  \label{fig:residuals}
+\end{figure}
+
+\subsection*{C. Source Code}
+
+The code is organized as: \texttt{main.py} (entry point), \texttt{config.py} (hyperparameters), \texttt{src/data\_loader.py} (data download), \texttt{src/preprocessing.py} (features \& splitting), \texttt{src/models.py} (model definitions), \texttt{src/train.py} (training), \texttt{src/evaluate.py} (evaluation), \texttt{src/utils.py} (utilities). All figures are generated by running \texttt{python main.py}. Data from the Bank of Canada Valet API~[9] (public, no key required).
 
 
 \newpage
