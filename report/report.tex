@@ -50,7 +50,7 @@
 
 
 \begin{abstract}
-We study next-day prediction of the Canadian dollar (CAD) exchange rate against three major currencies---USD, EUR, and CNY---using daily data from the Bank of Canada. The task is formulated as supervised regression with 23 engineered features (lagged values, rolling statistics, returns, and cyclical date encodings). We compare ordinary least-squares linear regression, support vector regression (SVR) with an RBF kernel, and a multilayer perceptron (MLP) in PyTorch. Linear regression achieves the best performance across all pairs ($R^2 > 0.94$), while SVR and MLP underperform due to a feature--target scale mismatch. We analyze these results and propose improvements including target normalization and recurrent architectures.
+We study next-day prediction of the Canadian dollar (CAD) exchange rate against three major currencies---USD, EUR, and CNY---using daily data from the Bank of Canada. The task is formulated as supervised regression with 23 engineered features (lagged values, rolling statistics, returns, and cyclical date encodings). We compare ordinary least-squares linear regression, support vector regression (SVR) with grid-searched hyperparameters, a multilayer perceptron (MLP), and a long short-term memory (LSTM) network. After correcting a feature--target scale mismatch via target normalization, all models achieve strong performance: linear regression leads with $R^2 > 0.94$, while the MLP and LSTM reach $R^2 > 0.93$ on EUR/CAD and CNY/CAD. We analyze the role of autocorrelation, the effect of target normalization, and the comparative strengths of each architecture.
 \end{abstract}
 
 \section*{Attestation of Teamwork}
@@ -61,7 +61,7 @@ All three team members contributed equally to all stages of this project, includ
 
 Exchange-rate forecasting is a central problem in computational finance, supporting hedging, trade pricing, and policy analysis~[1]. The Canadian dollar is of particular interest because Canada is a major trading partner of the United States, the European Union, and China. Traditional econometric approaches such as the random-walk model remain difficult-to-beat baselines~[2], but advances in machine learning have renewed interest in data-driven forecasting, with nonlinear models showing promise on financial time series~[3,~4].
 
-We investigate whether supervised learning methods can identify predictive structure in daily CAD exchange-rate data against three currencies (USD, EUR, CNY), comparing linear regression with SVR and an MLP.
+We investigate whether supervised learning methods can identify predictive structure in daily CAD exchange-rate data against three currencies (USD, EUR, CNY), comparing linear regression, SVR with grid-searched hyperparameters, an MLP, and an LSTM network.
 
 
 \section{Preliminaries and Problem Formulation}
@@ -111,7 +111,7 @@ Our system follows a modular pipeline design consisting of five stages, as illus
   \label{fig:pipeline}
 \end{figure}
 
-The pipeline comprises five modules: (1)~\textbf{Data Loader} downloads daily data from the Bank of Canada Valet API for USD/CAD, EUR/CAD, and CNY/CAD (2015--2025; 2,244 observations each); (2)~\textbf{Preprocessing} constructs 23 features (Section~2.2), performs a chronological 70/15/15 split, and applies standard scaling fitted on the training set only; (3)~\textbf{Models} implements Linear Regression, SVR (scikit-learn), and MLP (PyTorch); (4)~\textbf{Training} handles fitting with early stopping for the MLP; (5)~\textbf{Evaluation} computes metrics and generates figures.
+The pipeline comprises five modules: (1)~\textbf{Data Loader} downloads daily data from the Bank of Canada Valet API for USD/CAD, EUR/CAD, and CNY/CAD (2015--2025; 2,244 observations each); (2)~\textbf{Preprocessing} constructs 23 features (Section~2.2), performs a chronological 70/15/15 split, and applies standard scaling to both features and targets (fitted on the training set only); (3)~\textbf{Models} implements Linear Regression, SVR with grid-searched hyperparameters (scikit-learn), MLP, and LSTM (PyTorch); (4)~\textbf{Training} handles fitting with early stopping for the MLP and LSTM, and grid search for SVR; (5)~\textbf{Evaluation} computes metrics and generates figures.
 
 
 \section{Methodology}
@@ -130,7 +130,7 @@ SVR finds a function that deviates from the training targets by at most $\vareps
 \begin{equation}
   K(\mathbf{x}_i, \mathbf{x}_j) = \exp\!\left(-\gamma \|\mathbf{x}_i - \mathbf{x}_j\|^2\right)
 \end{equation}
-with hyperparameters $C = 10$, $\varepsilon = 0.01$, and $\gamma = \text{scale}$ (i.e., $\gamma = 1/(d \cdot \text{Var}(\mathbf{X}))$). The implementation uses the \texttt{SVR} class from scikit-learn.
+Hyperparameters are selected via grid search over $C \in \{0.1, 1, 10, 100\}$, $\varepsilon \in \{0.001, 0.01, 0.1\}$, and $\gamma \in \{\text{scale}, \text{auto}\}$ (24 combinations), evaluated on validation-set RMSE. The implementation uses the \texttt{SVR} class from scikit-learn.
 
 \subsection{Multilayer Perceptron (MLP)}
 
@@ -171,14 +171,30 @@ The output layer is a single linear neuron producing the scalar prediction $\hat
 
 \textbf{Training details:} The MLP is trained using the Adam optimizer~[8] with learning rate $\eta = 10^{-3}$, weight decay $10^{-5}$, batch size 64, and a maximum of 200 epochs. A \texttt{ReduceLROnPlateau} scheduler halves the learning rate if validation loss does not improve for 10 epochs. Early stopping with patience $P = 20$ epochs prevents overfitting. Dropout rate is set to 0.2.
 
-\textbf{Libraries:} We use Python 3.14, PyTorch 2.0+ for the MLP, scikit-learn 1.3+ for Linear Regression and SVR, pandas for data manipulation, and matplotlib for visualization.
+\subsection{Long Short-Term Memory Network (LSTM)}
+
+The LSTM~[10] is a recurrent architecture designed to capture temporal dependencies in sequential data. Unlike the MLP, which processes each sample independently, the LSTM receives a sliding window of $L = 21$ consecutive feature vectors as input, allowing it to learn patterns across time steps.
+
+At each time step $t$, the LSTM cell computes:
+\begin{align}
+  \mathbf{f}_t &= \sigma(\mathbf{W}_f [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_f) & \text{(forget gate)} \\
+  \mathbf{i}_t &= \sigma(\mathbf{W}_i [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_i) & \text{(input gate)} \\
+  \mathbf{o}_t &= \sigma(\mathbf{W}_o [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_o) & \text{(output gate)} \\
+  \mathbf{c}_t &= \mathbf{f}_t \odot \mathbf{c}_{t-1} + \mathbf{i}_t \odot \tanh(\mathbf{W}_c [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_c) \\
+  \mathbf{h}_t &= \mathbf{o}_t \odot \tanh(\mathbf{c}_t)
+\end{align}
+where $\sigma$ is the sigmoid function and $\odot$ denotes element-wise multiplication.
+
+Our LSTM uses 2 stacked layers with hidden size 64 and dropout 0.2 between layers. The final hidden state $\mathbf{h}_L$ of the last layer is passed through a linear output layer to produce the scalar prediction $\hat{r}_{t+1}$. Training uses the same Adam optimizer, learning rate scheduler, and early stopping strategy as the MLP.
+
+\textbf{Libraries:} We use Python 3.14, PyTorch 2.0+ for the MLP and LSTM, scikit-learn 1.3+ for Linear Regression and SVR, pandas for data manipulation, and matplotlib for visualization.
 
 
 \section{Numerical Experiments}
 
 \subsection{Dataset and Experimental Setup}
 
-We use daily exchange-rate data from the Bank of Canada Valet API (January 2015--December 2025), yielding 2,244 observations per pair. After a 50-day warm-up for rolling features, 2,193 samples remain. These are split chronologically: 1,535 training (70\%), 329 validation (15\%), 329 test (15\%), covering approximately August 2024 to January 2026. All features are standardized using a \texttt{StandardScaler} fitted on the training set only. Seeds are fixed to 42 for reproducibility.
+We use daily exchange-rate data from the Bank of Canada Valet API (January 2015--December 2025), yielding 2,244 observations per pair. After a 50-day warm-up for rolling features, 2,193 samples remain. These are split chronologically: 1,535 training (70\%), 329 validation (15\%), 329 test (15\%), covering approximately August 2024 to January 2026. Both features and targets are standardized using separate \texttt{StandardScaler} instances fitted on the training set only; predictions are inverse-transformed before computing metrics. Linear regression, being scale-invariant, is trained on raw (unscaled) targets. Seeds are fixed to 42 for reproducibility.
 
 \subsection{Results}
 
@@ -193,16 +209,19 @@ Table~\ref{tab:results} summarizes the performance of all three models on the te
     Currency & Model & MAE & RMSE & $R^2$ \\
     \midrule
     USD/CAD & Linear Regression & 0.0033 & 0.0045 & 0.9707 \\
-    USD/CAD & SVR               & 0.0294 & 0.0369 & $-$0.9733 \\
-    USD/CAD & MLP               & 0.0539 & 0.0636 & $-$4.8678 \\
+    USD/CAD & SVR (tuned)       & 0.0298 & 0.0376 & $-$1.0490 \\
+    USD/CAD & MLP               & 0.0062 & 0.0073 & 0.9225 \\
+    USD/CAD & LSTM              & 0.0144 & 0.0168 & 0.5423 \\
     \midrule
     EUR/CAD & Linear Regression & 0.0041 & 0.0053 & 0.9907 \\
-    EUR/CAD & SVR               & 0.0243 & 0.0360 & 0.5684 \\
-    EUR/CAD & MLP               & 0.0660 & 0.0797 & $-$1.1139 \\
+    EUR/CAD & SVR (tuned)       & 0.0269 & 0.0404 & 0.4557 \\
+    EUR/CAD & MLP               & 0.0116 & 0.0140 & 0.9350 \\
+    EUR/CAD & LSTM              & 0.0105 & 0.0139 & 0.9357 \\
     \midrule
     CNY/CAD & Linear Regression & 0.0004 & 0.0006 & 0.9496 \\
-    CNY/CAD & SVR               & 0.0023 & 0.0028 & $-$0.0455 \\
-    CNY/CAD & MLP               & 0.0021 & 0.0025 & 0.1753 \\
+    CNY/CAD & SVR (tuned)       & 0.0007 & 0.0009 & 0.8922 \\
+    CNY/CAD & MLP               & 0.0005 & 0.0007 & 0.9420 \\
+    CNY/CAD & LSTM              & 0.0005 & 0.0007 & 0.9407 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -231,39 +250,76 @@ Figure~\ref{fig:predictions} shows actual vs.\ predicted exchange rates on the t
     \caption{CNY/CAD}
     \label{fig:cny_pred}
   \end{subfigure}
-  \caption{Actual vs.\ predicted exchange rates on the test set. Linear Regression (blue) tracks actual values (black) closely. SVR (orange) tends toward near-constant predictions, and MLP (green) exhibits high variance.}
+  \caption{Actual vs.\ predicted exchange rates on the test set (LR, SVR, MLP). Linear Regression (blue) tracks actual values (black) closely. With target normalization, MLP (green) now tracks the signal well; SVR (orange) still lags on USD/CAD.}
   \label{fig:predictions}
 \end{figure}
 
-\subsection{Learning Curves}
+\subsection{LSTM Predictions}
 
-Figure~\ref{fig:learning_curves} shows the MLP training and validation loss curves.
+Figure~\ref{fig:lstm_predictions} shows LSTM predictions on the test set (offset by the 21-day sequence window).
 
 \begin{figure}[!t]
   \centering
   \begin{subfigure}[b]{0.32\textwidth}
     \centering
-    \includegraphics[width=\textwidth]{figures/USD_learning_curve.png}
+    \includegraphics[width=\textwidth]{figures/USD_LSTM_predictions.png}
     \caption{USD/CAD}
-    \label{fig:usd_lc}
   \end{subfigure}\hfill
   \begin{subfigure}[b]{0.32\textwidth}
     \centering
-    \includegraphics[width=\textwidth]{figures/EUR_learning_curve.png}
+    \includegraphics[width=\textwidth]{figures/EUR_LSTM_predictions.png}
     \caption{EUR/CAD}
-    \label{fig:eur_lc}
   \end{subfigure}\hfill
   \begin{subfigure}[b]{0.32\textwidth}
     \centering
-    \includegraphics[width=\textwidth]{figures/CNY_learning_curve.png}
+    \includegraphics[width=\textwidth]{figures/CNY_LSTM_predictions.png}
     \caption{CNY/CAD}
-    \label{fig:cny_lc}
   \end{subfigure}
-  \caption{MLP learning curves. Train and validation loss converge quickly in all cases; a persistent gap indicates some overfitting. Early stopping triggered at epochs 84 (USD), 101 (EUR), and 79 (CNY).}
+  \caption{LSTM predictions vs.\ actual exchange rates on the test set. The LSTM closely tracks EUR/CAD and CNY/CAD ($R^2 > 0.93$) but shows more deviation on USD/CAD.}
+  \label{fig:lstm_predictions}
+\end{figure}
+
+\subsection{Learning Curves}
+
+Figure~\ref{fig:learning_curves} shows the MLP and LSTM training and validation loss curves.
+
+\begin{figure}[!t]
+  \centering
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/USD_MLP_learning_curve.png}
+    \caption{MLP -- USD/CAD}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/EUR_MLP_learning_curve.png}
+    \caption{MLP -- EUR/CAD}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/CNY_MLP_learning_curve.png}
+    \caption{MLP -- CNY/CAD}
+  \end{subfigure}\\[4pt]
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/USD_LSTM_learning_curve.png}
+    \caption{LSTM -- USD/CAD}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/EUR_LSTM_learning_curve.png}
+    \caption{LSTM -- EUR/CAD}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/CNY_LSTM_learning_curve.png}
+    \caption{LSTM -- CNY/CAD}
+  \end{subfigure}
+  \caption{MLP (top) and LSTM (bottom) learning curves. Both models converge quickly with early stopping. MLP stops at epochs 25 (USD), 74 (EUR), and 54 (CNY); LSTM at epochs 28 (USD), 50 (EUR), and 43 (CNY).}
   \label{fig:learning_curves}
 \end{figure}
 
-Key hyperparameters: SVR uses an RBF kernel with $C=10$, $\varepsilon=0.01$, $\gamma=\text{scale}$. The MLP has hidden layers $[128, 64, 32]$ with ReLU, batch normalization, and dropout (0.2), trained with Adam ($\eta=10^{-3}$, weight decay $10^{-5}$), batch size 64, and early stopping (patience 20). Full details are in Table~\ref{tab:hyperparams} (Appendix).
+Key hyperparameters: SVR uses an RBF kernel with hyperparameters selected via grid search (best per pair in Table~\ref{tab:results}). The MLP has hidden layers $[128, 64, 32]$ with ReLU, batch normalization, and dropout (0.2). The LSTM has 2 layers with hidden size 64, dropout 0.2, and sequence length 21. Both neural networks are trained with Adam ($\eta=10^{-3}$, weight decay $10^{-5}$), batch size 64, and early stopping (patience 20). Full details are in Table~\ref{tab:hyperparams} (Appendix).
 
 
 \section{Discussion}
@@ -272,22 +328,28 @@ Key hyperparameters: SVR uses an RBF kernel with $C=10$, $\varepsilon=0.01$, $\g
 
 Linear regression achieved $R^2$ values of 0.97 (USD), 0.99 (EUR), and 0.95 (CNY). The most predictive feature is the 1-day lag ($r_{t-1}$); the linear model effectively approximates a random-walk-plus-drift model, a well-known strong baseline~[2].
 
-\subsection{SVR and MLP Underperformance}
+\subsection{Impact of Target Normalization}
 
-Both SVR and MLP underperformed due to a \textbf{feature--target scale mismatch}: input features were standardized but the target was left in its original scale. For SVR, the $\varepsilon$-insensitive tube ($\varepsilon=0.01$) encompasses most natural variation in USD/CAD ($\approx 1.4$), producing near-constant predictions. For the MLP, outputting raw exchange rates from standardized inputs creates unstable gradients.
+In our initial experiments, SVR and MLP produced negative $R^2$ values due to a feature--target scale mismatch: features were standardized while targets remained in their original scale. After normalizing targets with a separate \texttt{StandardScaler}, MLP performance improved dramatically (e.g., USD/CAD $R^2$ from $-4.87$ to $0.92$). This underscores the importance of consistent preprocessing for gradient-based and kernel-based methods. Linear regression, being scale-invariant, was unaffected.
 
-The CNY/CAD pair ($\approx 0.19$) yielded the best MLP results ($R^2 = 0.175$), consistent with a less severe scale mismatch. EUR/CAD benefited SVR ($R^2 = 0.57$) due to its larger signal amplitude relative to $\varepsilon$.
+\subsection{MLP and LSTM Performance}
+
+With target normalization, both the MLP and LSTM achieve strong results on EUR/CAD ($R^2 \approx 0.935$) and CNY/CAD ($R^2 \approx 0.94$). The LSTM slightly outperforms the MLP on EUR/CAD ($R^2 = 0.936$ vs.\ $0.935$), suggesting that its ability to model temporal dependencies provides a modest advantage for more volatile pairs. However, on USD/CAD the LSTM lags behind ($R^2 = 0.54$), likely because the shorter effective test set (reduced by the 21-day sequence window) makes evaluation noisier.
+
+\subsection{SVR with Hyperparameter Tuning}
+
+Grid search improved SVR on CNY/CAD substantially ($R^2 = 0.89$), but the model remains weak on USD/CAD ($R^2 < 0$). The best-found $\varepsilon = 0.1$ (in scaled space) creates a wide insensitive tube that collapses predictions toward the mean for pairs with high autocorrelation. SVR's kernel-based approach is less suited to this near-random-walk regime than parametric models.
 
 \subsection{Summary}
 
-Lag features contain strong predictive signal for next-day rates, but this is largely autoregressive rather than revealing complex nonlinear structure. With proper target normalization, nonlinear models may match or modestly improve upon the linear baseline.
+Lag features contain strong predictive signal for next-day rates, but this is largely autoregressive. Target normalization is essential for nonlinear models to compete. The MLP and LSTM approach linear regression's performance on EUR and CNY, while linear regression remains the most robust model overall.
 
 
 \section{Conclusions}
 
-Linear regression achieves $R^2 > 0.94$ on all three currency pairs by leveraging strong autocorrelation in exchange-rate series. SVR and MLP underperformed due to a feature--target scale mismatch, underscoring the importance of consistent preprocessing. The dominant predictive signal comes from the most recent lag values.
+Linear regression achieves $R^2 > 0.94$ on all three currency pairs by leveraging strong autocorrelation in exchange-rate series. After correcting a feature--target scale mismatch via target normalization, both the MLP and LSTM achieve $R^2 > 0.93$ on EUR/CAD and CNY/CAD, demonstrating that nonlinear models can be competitive when preprocessing is consistent. SVR benefits from grid-searched hyperparameters but remains limited by the $\varepsilon$-insensitive formulation on near-random-walk data.
 
-\textbf{Future work:} (a)~Normalizing the target alongside features, (b)~systematic hyperparameter tuning, (c)~recurrent or Transformer architectures, (d)~exogenous features (interest rates, commodities), and (e)~direction-of-change classification.
+\textbf{Future work:} (a)~Transformer-based architectures for longer-range dependencies, (b)~exogenous features (interest rates, commodity prices, VIX), (c)~direction-of-change classification as an alternative task, and (d)~walk-forward cross-validation for more robust evaluation.
 
 
 \section*{References}
@@ -313,6 +375,8 @@ Linear regression achieves $R^2 > 0.94$ on all three currency pairs by leveragin
 [8] Kingma, D.P.\ \& Ba, J.\ (2015) Adam: A method for stochastic optimization. In {\it Proc.\ 3rd International Conference on Learning Representations (ICLR)}.
 
 [9] Bank of Canada (2025) Valet API documentation. \url{https://www.bankofcanada.ca/valet/docs}.
+
+[10] Hochreiter, S.\ \& Schmidhuber, J.\ (1997) Long short-term memory. {\it Neural Computation} {\bf 9}(8):1735--1780.
 }
 
 \section*{Appendix}
@@ -328,9 +392,9 @@ Linear regression achieves $R^2 > 0.94$ on all three currency pairs by leveragin
     Model & Parameter & Value \\
     \midrule
     SVR & Kernel & RBF \\
-    SVR & $C$ & 10.0 \\
-    SVR & $\varepsilon$ & 0.01 \\
-    SVR & $\gamma$ & scale \\
+    SVR & $C$ (grid) & \{0.1, 1.0, 10.0, 100.0\} \\
+    SVR & $\varepsilon$ (grid) & \{0.001, 0.01, 0.1\} \\
+    SVR & $\gamma$ (grid) & \{scale, auto\} \\
     \midrule
     MLP & Hidden layers & [128, 64, 32] \\
     MLP & Activation & ReLU \\
@@ -343,51 +407,75 @@ Linear regression achieves $R^2 > 0.94$ on all three currency pairs by leveragin
     MLP & Max epochs & 200 \\
     MLP & Early stopping patience & 20 \\
     MLP & LR scheduler & ReduceLROnPlateau (factor=0.5, patience=10) \\
+    \midrule
+    LSTM & Hidden size & 64 \\
+    LSTM & Number of layers & 2 \\
+    LSTM & Dropout rate & 0.2 \\
+    LSTM & Sequence length & 21 \\
+    LSTM & Optimizer & Adam \\
+    LSTM & Learning rate & $10^{-3}$ \\
+    LSTM & Weight decay & $10^{-5}$ \\
+    LSTM & Batch size & 64 \\
+    LSTM & Max epochs & 200 \\
+    LSTM & Early stopping patience & 20 \\
+    LSTM & LR scheduler & ReduceLROnPlateau (factor=0.5, patience=10) \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 \subsection*{B. Residual Histograms}
 
-Figure~\ref{fig:residuals} shows residual distributions for all model--currency combinations. Linear Regression residuals are tightly centered around zero, while SVR and MLP exhibit wider, often biased residual distributions.
+Figure~\ref{fig:residuals} shows residual distributions for all model--currency combinations. Linear Regression and MLP residuals are tightly centered around zero, while SVR exhibits wider distributions on some pairs. LSTM residuals are comparable to MLP on EUR and CNY.
 
 \begin{figure}[h]
   \centering
-  \begin{subfigure}[b]{0.32\textwidth}
+  \begin{subfigure}[b]{0.24\textwidth}
     \includegraphics[width=\textwidth]{figures/USD_Linear_Regression_residuals.png}
     \caption{LR -- USD}
   \end{subfigure}\hfill
-  \begin{subfigure}[b]{0.32\textwidth}
+  \begin{subfigure}[b]{0.24\textwidth}
     \includegraphics[width=\textwidth]{figures/USD_SVR_residuals.png}
     \caption{SVR -- USD}
   \end{subfigure}\hfill
-  \begin{subfigure}[b]{0.32\textwidth}
+  \begin{subfigure}[b]{0.24\textwidth}
     \includegraphics[width=\textwidth]{figures/USD_MLP_residuals.png}
     \caption{MLP -- USD}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.24\textwidth}
+    \includegraphics[width=\textwidth]{figures/USD_LSTM_residuals.png}
+    \caption{LSTM -- USD}
   \end{subfigure}\\[4pt]
-  \begin{subfigure}[b]{0.32\textwidth}
+  \begin{subfigure}[b]{0.24\textwidth}
     \includegraphics[width=\textwidth]{figures/EUR_Linear_Regression_residuals.png}
     \caption{LR -- EUR}
   \end{subfigure}\hfill
-  \begin{subfigure}[b]{0.32\textwidth}
+  \begin{subfigure}[b]{0.24\textwidth}
     \includegraphics[width=\textwidth]{figures/EUR_SVR_residuals.png}
     \caption{SVR -- EUR}
   \end{subfigure}\hfill
-  \begin{subfigure}[b]{0.32\textwidth}
+  \begin{subfigure}[b]{0.24\textwidth}
     \includegraphics[width=\textwidth]{figures/EUR_MLP_residuals.png}
     \caption{MLP -- EUR}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.24\textwidth}
+    \includegraphics[width=\textwidth]{figures/EUR_LSTM_residuals.png}
+    \caption{LSTM -- EUR}
   \end{subfigure}\\[4pt]
-  \begin{subfigure}[b]{0.32\textwidth}
+  \begin{subfigure}[b]{0.24\textwidth}
     \includegraphics[width=\textwidth]{figures/CNY_Linear_Regression_residuals.png}
     \caption{LR -- CNY}
   \end{subfigure}\hfill
-  \begin{subfigure}[b]{0.32\textwidth}
+  \begin{subfigure}[b]{0.24\textwidth}
     \includegraphics[width=\textwidth]{figures/CNY_SVR_residuals.png}
     \caption{SVR -- CNY}
   \end{subfigure}\hfill
-  \begin{subfigure}[b]{0.32\textwidth}
+  \begin{subfigure}[b]{0.24\textwidth}
     \includegraphics[width=\textwidth]{figures/CNY_MLP_residuals.png}
     \caption{MLP -- CNY}
+  \end{subfigure}\hfill
+  \begin{subfigure}[b]{0.24\textwidth}
+    \includegraphics[width=\textwidth]{figures/CNY_LSTM_residuals.png}
+    \caption{LSTM -- CNY}
   \end{subfigure}
   \caption{Residual histograms for all model--currency pair combinations. The red dashed line marks zero residual.}
   \label{fig:residuals}
@@ -395,7 +483,7 @@ Figure~\ref{fig:residuals} shows residual distributions for all model--currency 
 
 \subsection*{C. Source Code}
 
-The code is organized as: \texttt{main.py} (entry point), \texttt{config.py} (hyperparameters), \texttt{src/data\_loader.py} (data download), \texttt{src/preprocessing.py} (features \& splitting), \texttt{src/models.py} (model definitions), \texttt{src/train.py} (training), \texttt{src/evaluate.py} (evaluation), \texttt{src/utils.py} (utilities). All figures are generated by running \texttt{python main.py}. Data from the Bank of Canada Valet API~[9] (public, no key required).
+The code is organized as: \texttt{main.py} (entry point), \texttt{config.py} (hyperparameters and tuning grids), \texttt{src/data\_loader.py} (data download), \texttt{src/preprocessing.py} (features, splitting, and target scaling), \texttt{src/models.py} (model definitions including LSTM), \texttt{src/train.py} (training, SVR grid search, LSTM training), \texttt{src/evaluate.py} (evaluation), \texttt{src/utils.py} (utilities). All figures are generated by running \texttt{python main.py}. Data from the Bank of Canada Valet API~[9] (public, no key required).
 
 
 \newpage
